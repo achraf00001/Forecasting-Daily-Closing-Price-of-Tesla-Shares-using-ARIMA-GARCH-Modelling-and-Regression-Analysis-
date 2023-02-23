@@ -1,0 +1,205 @@
+---
+title: "Untitled"
+author: "Achraf chekaoui"
+date: "5/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##GRACH MODEL 
+```{r}
+library(forecast)
+tesla <- read.csv("teslafinal.csv") #daily stock values for year 2021 (251 obs)
+#using adjusted average just as the paper
+library(tidyverse)
+tesla_1 <-tesla%>%select(Date, TSLA.Adjusted)
+head(tesla_1)
+#changeing date to actual date and not just numeric 
+tesla_1$Date <- as.Date(tesla_1$Date, "%m/%d/%Y")
+head(tesla_1)
+# from Jan 4,2021 to Dec 30, 2021 as a time series object
+TS <- ts(tesla_1, start=c(2021-01-04, 1), end=c(2021-12-30, 251))
+plot(TS) 
+
+decomp <- decompose(ht , type = "multiplicative")
+decomp$figure # This gives monthly decomposition of percentage higher or lower compared to average
+# The plot below shows the seasonal variation more clearly-- November has the least airline passengers
+plot(decomp$figure,
+     type = 'b',
+     xlab = 'Month',
+     ylab = 'Seasonality Index',
+     col = 'blue',
+     las = 2)
+plot(decomp) 
+
+```
+
+
+```{r}
+# Libraries
+library(ggplot2)
+library(dplyr)
+
+
+# plot of time series
+p <- ggplot(tesla_1, aes(x=Date, y=Adj.Close)) +
+    geom_line() + 
+  xlab("")
+p
+
+acf(tesla_1$Adj.Close, main='Autocorrelations', ylab='',   ylim=c(-1, 1), xlim=c(0, 15), ci.col = "black")
+pacf(tesla_1$Adj.Close, main='Partial Autocorrelations', ylab='', ylim=c(-1, 1), ci.col = "black")
+
+Diff1 <- diff(tesla_1$Adj.Close, differences = 1) # Another way to do differencing
+plot(Diff1)   
+ggtsdisplay(Diff1)
+
+acf(Diff1, main='Autocorrelations', ylab='',   ylim=c(-1, 1), xlim=c(0, 15), ci.col = "black")
+pacf(Diff1, main='Partial Autocorrelations', ylab='', ylim=c(-1, 1), ci.col = "black")
+```
+
+
+```{r} 
+
+# Fit Model1 could be ARIMA(0,1,1)
+Model1 <- Arima(tesla_1$Adj.Close,order=c(0,1,0),lambda=NULL)
+# Lambda is Box-Cox transformation parameter. If lambda="auto", then a transformation is automatically selected using BoxCox.lambda. The transformation is ignored if NULL. Otherwise, data transformed before model is estimated.
+# Note that Lambda=0 means log transformation under Box-Cox transformations.
+Model1
+
+modelARIMA.1 <- auto.arima(tesla_1$Adj.Close)
+modelARIMA.1 
+
+model2 <- Arima(tesla_1$Adj.Close,order=c(1,1,0),lambda=NULL) # the model is not significant since the 0 is incuded in the 2  interval(the margine of error). -0.1429 , 0.1095 
+model2 
+model3 <- Arima(tesla_1$Adj.Close,order=c(0,1,1),lambda=NULL) # the model is not significant since the 0 is incuded in the 2  interval(the margine of error). -0.1665 , 0.1095
+model3 
+model4 <- Arima(tesla_1$Adj.Close,order=c(1,1,1),lambda=NULL) # the model is significant no 0 is included in the 2 sd interval for both AR and MA. 0.2683 , 1.2399 and -1.2421 , -0.3825
+model4 
+modele5 <- Arima(tesla_1$Adj.Close,order=c(2,1,1),lambda=NULL)# the model is not significant since the 0 is incuded in the 2  interval(the margine of error)  
+modele5
+
+modele6 <- Arima(tesla_1$Adj.Close,order=c(1,1,2),lambda=NULL)# the model is not significant since the 0 is incuded in the 2  interval(the margine of error) 
+modele6
+modele7 <- Arima(tesla_1$Adj.Close,order=c(3,1,3),lambda=NULL)# the model is significant since 0 is not incuded in the 2  interval std (the margine of error) 
+modele7 
+
+
+#form all these models only arima(1,1,1), arima(0,1,0) and wierdly arima(3,1,3) ask colin not me 
+```
+
+
+```{r}
+#install.packages("quantmod")
+#install.packages("xts")
+#install.packages("PerformanceAnalytics")
+#install.packages("rugarch")
+# Libraries 
+library(zoo)
+library(xts)
+library(tseries)
+library(quantmod)
+library(PerformanceAnalytics)
+library(rugarch)
+library(forecast)
+library(tidyverse)
+
+
+# Daily returns
+x.xts<-xts(tesla_1$Adj.Close, tesla_1$Date)
+return <- Return.calculate(x.xts, method="simple")
+
+
+return <- diff(tesla_1$Adj.Close, differences = 1) # Another way to do differencing
+#return <- return[-1] no need for this r do it for you 
+hist(return)
+plot(return) 
+
+
+# 1. sGARCH model with contant mean
+s1 <- ugarchspec(mean.model = list(armaOrder = c(0,0)),
+                 variance.model = list(model = "sGARCH"),
+                 distribution.model = 'norm')
+
+m1 <- ugarchfit(data = return, spec = s1)
+m1
+plot(m1)
+#Remark all parameters sig, the q-q plot shows heavy tails
+
+# 2. sGARCH model with contant mean with t-distribution for error terms
+s1t <- ugarchspec(mean.model = list(armaOrder = c(0,0)),
+                    variance.model = list(model = "sGARCH"),
+                    distribution.model = 'sstd')
+m1t <- ugarchfit(data = return, spec = s1t)
+m1t
+plot(m1t)
+
+# 3. ARCH(1) model is the sGARCH(0,1) model
+s2 <- ugarchspec(mean.model = list(armaOrder = c(0,0)),
+                 variance.model = list(model = "sGARCH", garchOrder = c(0, 1)),
+                 distribution.model = 'norm')
+m2 <- ugarchfit(data = return, spec = s2)
+m2
+plot(m2)
+
+#4 compute the ARMA(1,1)-GARCH(1,1) model as an example:
+s4 <- ugarchspec(mean.model = list(armaOrder = c(1,2)),
+                 variance.model = list(model = "sGARCH", garchOrder = c(0, 1)),
+                 distribution.model = 'sstd')
+m4 <- ugarchfit(data = return, spec = s4)
+m4
+plot(m4)
+
+help(ugarchspec) 
+
+#5 compute the ARMA(3,3)-GARCH(1,1) model as an example:
+s5 <- ugarchspec(mean.model = list(armaorder = c(3,3) ),
+                 variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+                 distribution.model = 'norm')
+m5 <- ugarchfit(data = return, spec = s5)
+m5
+plot(m5)  
+
+#6 compute the ARMA(1,1)-GARCH(1,1) model as an example:
+s6 <- ugarchspec(mean.model = list(armaorder = c(1,1) ),
+                 variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), #garch first coefficient is not significant 
+                 distribution.model = 'norm')
+m6 <- ugarchfit(data = return, spec = s6)
+m6 
+plot(m6)
+
+#7 compute the ARMA(1,1)-GARCH(1,1) model as an example:
+s7 <- ugarchspec(mean.model = list(armaorder = c(1,1) ),
+                 variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), 
+                 distribution.model = 'sstd')
+m7 <- ugarchfit(data = return, spec = s7)
+m7
+
+#8 compute the ARMA(1,1)-GARCH(1,1) model as an example:
+s8 <- ugarchspec(mean.model = list(armaorder = c(1,1) ),
+                 variance.model = list(model = "sGARCH", garchOrder = c(0, 1)), 
+                 distribution.model = 'norm') # alpha is not significant any more 
+m8 <- ugarchfit(data = return, spec = s8)
+m8
+#9 compute the ARMA(1,1)-GARCH(1,1) model as an example:
+s9 <- ugarchspec(mean.model = list(armaorder = c(1,1) ),
+                 variance.model = list(model = "sGARCH", garchOrder = c(0, 1)), 
+                 distribution.model = 'sstd')  
+m9 <- ugarchfit(data = return, spec = s9)
+m9 
+plot(m9)
+
+```
+
+
+```{r}
+f2 <- ugarchforecast(fitORspec = m9, n.ahead = 20) 
+plot(f2)
+plot(fitted(f2))
+plot(sigma(f2))
+
+```
+
